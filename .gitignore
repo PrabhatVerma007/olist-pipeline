@@ -1,21 +1,58 @@
+# =========================
 # Python
+# =========================
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+*.so
 
-# Virtual Environment
+# Virtual environments
 venv/
 .env/
+env/
 
-# Data files (optional if large)
+# =========================
+# Secrets / Credentials
+# =========================
+scripts/config.py
+*.env
+.env.*
+
+# =========================
+# Data files (optional but recommended)
+# =========================
 data/raw/
 data/processed/
+*.csv
+*.xlsx
 
-# IDE
-.vscode/
-.idea/
+# =========================
+# Logs
+# =========================
+*.log
 
-# OS
+# =========================
+# OS files
+# =========================
 .DS_Store
 Thumbs.db
+
+# =========================
+# IDE files
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Build / cache
+# =========================
+build/
+dist/
+*.egg-info/
