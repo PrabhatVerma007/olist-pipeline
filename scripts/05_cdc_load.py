@@ -6,17 +6,17 @@ import mysql.connector
 import os
 import sys
 
-# ─────────────────────────────────────────
-# CONFIG IMPORT (avoid naming conflict with built-in secrets module)
-# ─────────────────────────────────────────
+# -------------------------------
+# CONFIG
+# -------------------------------
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
 
 RAW_FOLDER = Path('data/raw')
 
-# ─────────────────────────────────────────
-# CONNECTIONS (use context-safe handling)
-# ─────────────────────────────────────────
+# -------------------------------
+# CONNECTIONS
+# -------------------------------
 engine = create_engine(
     f'mysql+mysqlconnector://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}/{MYSQL_DATABASE}',
     pool_pre_ping=True
@@ -30,10 +30,9 @@ conn = mysql.connector.connect(
 )
 cursor = conn.cursor(dictionary=True)
 
-# ─────────────────────────────────────────
+# -------------------------------
 # HELPERS
-# ─────────────────────────────────────────
-
+# -------------------------------
 def get_watermark(table_name):
     cursor.execute(
         'SELECT last_loaded_at, run_number FROM pipeline_watermark WHERE table_name = %s',
@@ -65,13 +64,18 @@ def print_section(title):
     print(f'{"─"*60}')
 
 
-# ─────────────────────────────────────────
-# CDC FUNCTIONS (optimized)
-# ─────────────────────────────────────────
+# -------------------------------
+# CDC FUNCTIONS
+# -------------------------------
+def cdc_by_timestamp(table_name, filepath, timestamp_col):
+    last_loaded, run_number = get_watermark(table_name)
+    run_number += 1
 
-def cdc_by_timestamp(table_name, filepath, timestamp_col, last_loaded, run_number, load_type):
     df = pd.read_csv(filepath, low_memory=False)
     df[timestamp_col] = pd.to_datetime(df[timestamp_col], errors='coerce')
+
+    is_first_run = (last_loaded.year == 2000)
+    load_type = 'full' if is_first_run else 'incremental'
 
     if load_type == 'incremental':
         df = df[df[timestamp_col] > pd.Timestamp(last_loaded)]
@@ -82,8 +86,8 @@ def cdc_by_timestamp(table_name, filepath, timestamp_col, last_loaded, run_numbe
     rows = len(df)
 
     if rows == 0:
-        print(f'  No new rows')
-        update_watermark(table_name, 0, 'incremental_no_change', run_number)
+        print('  No new rows')
+        update_watermark(table_name, 0, 'no_change', run_number)
         return
 
     df.to_sql(table_name, con=engine, if_exists=mode, index=False, chunksize=5000)
@@ -93,16 +97,20 @@ def cdc_by_timestamp(table_name, filepath, timestamp_col, last_loaded, run_numbe
     print(f'  Mode        : {mode}')
 
 
-def cdc_by_id(table_name, filepath, id_col, run_number, load_type):
+def cdc_by_id(table_name, filepath, id_col):
+    last_loaded, run_number = get_watermark(table_name)
+    run_number += 1
+
     df = pd.read_csv(filepath, low_memory=False)
+
+    is_first_run = (last_loaded.year == 2000)
+    load_type = 'full' if is_first_run else 'incremental'
 
     if load_type == 'incremental':
         try:
             existing = pd.read_sql(f'SELECT {id_col} FROM {table_name}', engine)
-            existing_set = set(existing[id_col])
-            df = df[~df[id_col].isin(existing_set)]
+            df = df[~df[id_col].isin(set(existing[id_col]))]
         except Exception:
-            # table might not exist yet
             pass
         mode = 'append'
     else:
@@ -111,8 +119,8 @@ def cdc_by_id(table_name, filepath, id_col, run_number, load_type):
     rows = len(df)
 
     if rows == 0:
-        print(f'  No new rows')
-        update_watermark(table_name, 0, 'incremental_no_change', run_number)
+        print('  No new rows')
+        update_watermark(table_name, 0, 'no_change', run_number)
         return
 
     df.to_sql(table_name, con=engine, if_exists=mode, index=False, chunksize=5000)
@@ -122,25 +130,12 @@ def cdc_by_id(table_name, filepath, id_col, run_number, load_type):
     print(f'  Mode        : {mode}')
 
 
-# ─────────────────────────────────────────
+# -------------------------------
 # PIPELINE START
-# ─────────────────────────────────────────
-
+# -------------------------------
 print('='*60)
 print('CDC PIPELINE START')
 print('='*60)
-
-last_loaded, run_number = get_watermark('stg_orders')
-
-is_first_run = (last_loaded.year == 2000)
-load_type = 'full' if is_first_run else 'incremental'
-run_number += 1
-
-print(f'Mode: {load_type.upper()}')
-
-# ─────────────────────────────────────────
-# EXECUTION
-# ─────────────────────────────────────────
 
 jobs = [
     ('stg_orders', 'olist_orders_dataset.csv', 'timestamp', 'order_purchase_timestamp'),
@@ -159,13 +154,13 @@ for i, (table, file, cdc_type, col) in enumerate(jobs, start=1):
     path = RAW_FOLDER / file
 
     if cdc_type == 'timestamp':
-        cdc_by_timestamp(table, path, col, last_loaded, run_number, load_type)
+        cdc_by_timestamp(table, path, col)
     else:
-        cdc_by_id(table, path, col, run_number, load_type)
+        cdc_by_id(table, path, col)
 
-# ─────────────────────────────────────────
+# -------------------------------
 # CLEANUP
-# ─────────────────────────────────────────
+# -------------------------------
 cursor.close()
 conn.close()
 
