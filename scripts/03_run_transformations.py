@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 
 # -------------------------------
-# SQL EXECUTION ORDER
+# ✅ UPDATED SQL EXECUTION ORDER
 # -------------------------------
 SQL_ORDER = [
     # INTERMEDIATE
@@ -32,10 +32,13 @@ SQL_ORDER = [
     BASE_DIR / 'sql/intermediate/int_order_items_enriched.sql',
     BASE_DIR / 'sql/intermediate/int_payments_reviews.sql',
 
-    # FACT
+    # FACT (optional but fine)
     BASE_DIR / 'sql/mart/fact_order_items.sql',
 
-    # MARTS
+    # ✅ PRIMARY MART (DATE-BASED FACT)
+    BASE_DIR / 'sql/mart/mart_orders.sql',
+
+    # OTHER MARTS (dimension-like)
     BASE_DIR / 'sql/mart/mart_customer.sql',
     BASE_DIR / 'sql/mart/mart_delivery_reviews.sql',
     BASE_DIR / 'sql/mart/mart_payments.sql',
@@ -44,15 +47,16 @@ SQL_ORDER = [
 ]
 
 # -------------------------------
-# VALIDATION TABLES
+# ✅ VALIDATION TABLES (UPDATED)
 # -------------------------------
 MART_TABLES = {
-    'fact_order_items':        100000,
-    'mart_customer':           90000,
-    'mart_delivery_reviews':   10000,
-    'mart_payments':           100000,
-    'mart_product':            30000,
-    'mart_seller':             3000,
+    'mart_orders':            90000,   # primary table
+    'fact_order_items':       100000,
+    'mart_customer':          90000,
+    'mart_delivery_reviews':  10000,
+    'mart_payments':          100000,
+    'mart_product':           30000,
+    'mart_seller':            3000,
 }
 
 # -------------------------------
@@ -71,7 +75,7 @@ def run_transformations():
     cursor = conn.cursor()
 
     print("=" * 60)
-    print("RUNNING SQL TRANSFORMATIONS")
+    print("RUNNING SQL TRANSFORMATIONS (UPDATED)")
     print("=" * 60)
 
     failed = []
@@ -81,7 +85,7 @@ def run_transformations():
         filename = filepath.name
 
         if not filepath.exists():
-            print(f'\nSKIPPED - file not found: {filepath}')
+            print(f'\n❌ SKIPPED - file not found: {filepath}')
             logging.error(f'Missing file: {filepath}')
             failed.append(filename)
             break
@@ -96,13 +100,13 @@ def run_transformations():
         ]
         clean_sql = '\n'.join(lines)
 
-        # Split statements
+        # Split multiple statements
         statements = [
             s.strip() for s in clean_sql.split(';')
             if s.strip()
         ]
 
-        print(f'\nRunning : {filename}')
+        print(f'\n▶ Running : {filename}')
         logging.info(f'Running {filename}')
 
         try:
@@ -110,16 +114,16 @@ def run_transformations():
                 cursor.execute(statement)
 
             conn.commit()
-            print('Status  : DONE')
+            print('✔ Status  : DONE')
             logging.info(f'{filename} executed successfully')
 
         except Exception as e:
             conn.rollback()
-            print('Status  : FAILED')
-            print(f'Error   : {e}')
+            print('❌ Status  : FAILED')
+            print(f'Error     : {e}')
             logging.error(f'{filename} failed: {e}')
             failed.append(filename)
-            break  # STOP PIPELINE on failure
+            break
 
     # -------------------------------
     # VALIDATION
@@ -152,7 +156,7 @@ def run_transformations():
     print('\n' + '=' * 60)
 
     if not failed and all_passed:
-        print('RESULT : ALL PASSED - Ready for Airflow & Tableau')
+        print('RESULT : ALL PASSED - Ready for Tableau')
         logging.info('Pipeline completed successfully')
 
     elif failed:

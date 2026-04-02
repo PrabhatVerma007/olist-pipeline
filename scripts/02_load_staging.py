@@ -1,25 +1,28 @@
 import pandas as pd
 from sqlalchemy import create_engine
-import os
-import sys
 from pathlib import Path
+import sys
 
-# Fix import path
+# -------------------------------
+# ✅ CONFIG IMPORT
+# -------------------------------
 CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(CURRENT_DIR))
 
 from config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
 
-# DB connection
-url = f'mysql+mysqlconnector://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}/{MYSQL_DATABASE}'
-print("FINAL URL:", url)
+# -------------------------------
+# ✅ DB CONNECTION
+# -------------------------------
+DB_URL = f"mysql+mysqlconnector://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}/{MYSQL_DATABASE}"
+engine = create_engine(DB_URL)
 
-engine = create_engine(url)
-
-# Absolute base path (important)
+# -------------------------------
+# ✅ PATH SETUP
+# -------------------------------
 BASE_DIR = CURRENT_DIR.parent
 
-tables = {
+TABLES = {
     'stg_orders':         BASE_DIR / 'data/raw/olist_orders_dataset.csv',
     'stg_order_items':    BASE_DIR / 'data/raw/olist_order_items_dataset.csv',
     'stg_order_payments': BASE_DIR / 'data/raw/olist_order_payments_dataset.csv',
@@ -30,30 +33,90 @@ tables = {
     'stg_geolocation':    BASE_DIR / 'data/raw/olist_geolocation_dataset.csv',
 }
 
-for table_name, filepath in tables.items():
+# -------------------------------
+# ✅ CLEANING FUNCTIONS
+# -------------------------------
+def standardize_columns(df):
+    df.columns = df.columns.str.strip().str.lower()
+    return df
+
+def clean_keys(df):
+    key_cols = ['customer_id', 'order_id', 'product_id', 'seller_id']
+    for col in key_cols:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip().str.upper()
+    return df
+
+def handle_nulls(df):
+    df.replace('', pd.NA, inplace=True)
+    return df
+
+def fix_dtypes(df):
+    for col in df.columns:
+        # Dates
+        if 'date' in col or 'timestamp' in col:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        # Numeric fields
+        if any(x in col for x in ['price', 'value', 'amount', 'payment']):
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    return df
+
+def remove_bad_rows(df):
+    df.dropna(how='all', inplace=True)
+    df.drop_duplicates(inplace=True)
+    return df
+
+def clean_dataframe(df):
+    df = standardize_columns(df)
+    df = remove_bad_rows(df)
+    df = clean_keys(df)
+    df = handle_nulls(df)
+    df = fix_dtypes(df)
+    return df
+
+# -------------------------------
+# ✅ LOAD FUNCTION
+# -------------------------------
+def load_table(table_name, filepath):
+    print(f"\n🔄 Processing: {table_name}")
+
+    if not filepath.exists():
+        print(f"❌ File not found: {filepath}")
+        return
+
     try:
-        print(f'\nLoading {table_name}...')
-
-        if not filepath.exists():
-            print(f"File not found: {filepath}")
-            continue
-
         df = pd.read_csv(filepath)
 
-        # Use transaction-safe connection
-        with engine.begin() as connection:
+        print(f"📥 Raw shape: {df.shape}")
+
+        df = clean_dataframe(df)
+
+        print(f"🧹 Cleaned shape: {df.shape}")
+
+        with engine.begin() as conn:
             df.to_sql(
                 table_name,
-                con=connection,
+                con=conn,
                 if_exists='replace',
                 index=False,
-                chunksize=5000  # critical for large tables
+                chunksize=5000
             )
 
-        print(f'Done: {table_name} — {len(df)} rows')
+        print(f"✅ Loaded: {table_name}")
 
     except Exception as e:
-        print(f'Error loading {table_name}')
+        print(f"❌ Error in {table_name}")
         print(e)
 
-print('\nAll staging tables processed.')
+# -------------------------------
+# ✅ MAIN EXECUTION
+# -------------------------------
+if __name__ == "__main__":
+    print("🚀 Starting staging load...")
+
+    for table, path in TABLES.items():
+        load_table(table, path)
+
+    print("\n🎯 All staging tables loaded successfully.")

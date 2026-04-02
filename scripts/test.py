@@ -1,5 +1,9 @@
-from config import MYSQL_HOST, MYSQL_DATABASE,MYSQL_PASSWORD,MYSQL_USER
-print("HOST:", MYSQL_HOST)
-print("USER:", MYSQL_USER)
-print("PASS:", MYSQL_PASSWORD)
-print("DB:", MYSQL_DATABASE)
+import pandas as pd
+
+df = pd.read_csv(r'C:\olist-pipeline\data\raw\olist_customers_dataset.csv')
+
+print("Total rows:", len(df))
+print("Unique customer_id:", df['customer_id'].nunique())
+
+dupes = df[df.duplicated(subset=['customer_id'], keep=False)]
+print("Duplicate rows:", len(dupes))
